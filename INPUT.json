@@ -1,5 +1,5 @@
 {
-  "startUrls": "https://www.daraz.pk/womens-fashion/",
+  "startUrls": "https://www.daraz.pk/womens-fashion/\nhttps://www.daraz.pk/mens-fashion/\nhttps://www.daraz.pk/electronic-devices/",
   "maxProducts": 50,
   "maxPages": 5,
   "sortBy": "popularity",
