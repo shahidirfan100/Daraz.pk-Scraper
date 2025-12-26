@@ -1,27 +1,6 @@
 {
   "actorSpecification": 1,
-  "fields": {
-    "productId": { "type": "string" },
-    "title": { "type": "string" },
-    "brand": { "type": "string" },
-    "price": { "type": "number" },
-    "currency": { "type": "string" },
-    "priceText": { "type": "string" },
-    "originalPrice": { "type": "number" },
-    "originalPriceText": { "type": "string" },
-    "discountPct": { "type": "number" },
-    "discountText": { "type": "string" },
-    "rating": { "type": "number" },
-    "reviewCount": { "type": "integer" },
-    "imageUrl": { "type": "string", "format": "uri" },
-    "productUrl": { "type": "string", "format": "uri" },
-    "inStock": { "type": "boolean" },
-    "sellerName": { "type": "string" },
-    "location": { "type": "string" },
-    "categoryName": { "type": "string" },
-    "source": { "type": "string" },
-    "scrapedAt": { "type": "string", "format": "date-time" }
-  },
+  "fields": {},
   "views": {
     "overview": {
       "title": "Products Overview",
@@ -31,13 +10,11 @@
           "title",
           "price",
           "originalPrice",
-          "discountPct",
+          "discount",
           "rating",
           "reviewCount",
           "brand",
-          "productUrl",
-          "source",
-          "scrapedAt"
+          "productUrl"
         ]
       },
       "display": {
@@ -59,9 +36,9 @@
             "label": "Original Price",
             "format": "text"
           },
-          "discountPct": {
-            "label": "Discount %",
-            "format": "number"
+          "discount": {
+            "label": "Discount",
+            "format": "text"
           },
           "rating": {
             "label": "Rating",
