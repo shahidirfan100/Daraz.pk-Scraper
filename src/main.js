@@ -136,6 +136,12 @@ async function main() {
             return apiUrl;
         }
 
+        async function resolveProxyUrl() {
+            if (!proxyConf) return undefined;
+            const value = proxyConf.newUrl();
+            return typeof value?.then === 'function' ? await value : value;
+        }
+
         /**
          * Extract product data from Daraz JSON API response
          */
@@ -144,7 +150,7 @@ async function main() {
                 const apiUrl = buildApiUrl(url, page);
                 log.info(`Fetching API data from: ${apiUrl.href}`);
 
-                const proxyUrl = proxyConf ? await proxyConf.newUrl() : undefined;
+                const proxyUrl = await resolveProxyUrl();
 
                 const requestOptions = {
                     url: apiUrl.href,
@@ -345,6 +351,11 @@ async function main() {
                         products = parseProductsFromHtml($, request.url);
                         log.info(`HTML parsing: ${products.length} products extracted`);
                     }
+                }
+
+                if (!products.length) {
+                    log.warning('No products extracted on this page. Skipping further pagination from this path.');
+                    return;
                 }
 
                 // Filter products
