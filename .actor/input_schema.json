@@ -4,6 +4,12 @@
   "type": "object",
   "schemaVersion": 1,
   "properties": {
+    "categoryUrl": {
+      "title": "Category URL",
+      "type": "string",
+      "description": "Daraz.pk category page URL (e.g., https://www.daraz.pk/womens-fashion/). Used when start URLs and search query are not provided.",
+      "editor": "textfield"
+    },
     "startUrls": {
       "title": "Multiple Start URLs",
       "type": "string",
@@ -29,8 +35,8 @@
     "maxPages": {
       "title": "Maximum Pages",
       "type": "integer",
-      "description": "Maximum number of listing pages to scrape. Prevents excessive scraping.",
-      "minimum": 1,
+      "description": "Maximum number of listing pages to scrape. Set to 0 for unlimited (use with care).",
+      "minimum": 0,
       "default": 50,
       "editor": "number",
       "prefill": 50
