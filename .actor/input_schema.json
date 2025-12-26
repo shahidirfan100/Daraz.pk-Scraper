@@ -5,13 +5,11 @@
   "schemaVersion": 1,
   "properties": {
     "startUrls": {
-      "title": "Start URLs (Multiple)",
-      "type": "array",
-      "description": "Array of Noon.com URLs to scrape. Each entry should be a URL object with a 'url' property.",
-      "editor": "strlinglist",
-      "prefill": [
-        { "url": "https://www.noon.com/uae-en/fashion/men-31225/crazy-price-drops-ae-FA_03/" }
-      ]
+      "title": "Multiple Start URLs",
+      "type": "string",
+      "description": "List of Daraz.pk URLs to scrape from (one URL per line). Useful for scraping multiple categories. Overrides category URL and search query.",
+      "editor": "stringlist",
+      "prefill": "https://www.daraz.pk/womens-fashion/"
     },
     "searchQuery": {
       "title": "Search Query",

@@ -287,6 +287,8 @@ Each scraped product contains the following structured data:
 }
 ```
 
+*Note: Use the stringlist editor to easily add/remove URLs, one per line.*
+
 ### Example 4: Price Range Filter
 
 ```json

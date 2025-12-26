@@ -144,7 +144,9 @@ async function main() {
                 const apiUrl = buildApiUrl(url, page);
                 log.info(`Fetching API data from: ${apiUrl.href}`);
 
-                const response = await gotScraping({
+                const proxyUrl = proxyConf ? await proxyConf.newUrl() : undefined;
+
+                const requestOptions = {
                     url: apiUrl.href,
                     headers: {
                         ...{
@@ -158,8 +160,11 @@ async function main() {
                     throwHttpErrors: false,
                     responseType: 'json',
                     followRedirect: true,
-                    proxyUrl: proxyConf?.newUrl(),
-                });
+                };
+
+                if (proxyUrl) requestOptions.proxyUrl = proxyUrl;
+
+                const response = await gotScraping(requestOptions);
 
                 if (response.statusCode >= 400) {
                     log.debug(`API returned status ${response.statusCode} for ${apiUrl.href}`);
