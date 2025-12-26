@@ -287,7 +287,7 @@ Each scraped product contains the following structured data:
 }
 ```
 
-*Note: Use the stringlist editor to easily add/remove URLs, one per line.*
+*Note: Use the textarea editor to easily add multiple URLs, one per line.*
 
 ### Example 4: Price Range Filter
 
