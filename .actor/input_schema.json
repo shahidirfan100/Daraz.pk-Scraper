@@ -8,7 +8,7 @@
       "title": "Start URLs (Multiple)",
       "type": "array",
       "description": "Array of Noon.com URLs to scrape. Each entry should be a URL object with a 'url' property.",
-      "editor": "requestListSources",
+      "editor": "strlinglist",
       "prefill": [
         { "url": "https://www.noon.com/uae-en/fashion/men-31225/crazy-price-drops-ae-FA_03/" }
       ]
