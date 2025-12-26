@@ -1,0 +1,63 @@
+{
+  "actorSpecification": 1,
+  "fields": {},
+  "views": {
+    "overview": {
+      "title": "Products Overview",
+      "transformation": {
+        "fields": [
+          "imageUrl",
+          "title",
+          "price",
+          "originalPrice",
+          "discount",
+          "rating",
+          "reviewCount",
+          "brand",
+          "productUrl"
+        ]
+      },
+      "display": {
+        "component": "table",
+        "properties": {
+          "imageUrl": {
+            "label": "Image",
+            "format": "image"
+          },
+          "title": {
+            "label": "Product Title",
+            "format": "text"
+          },
+          "price": {
+            "label": "Price",
+            "format": "text"
+          },
+          "originalPrice": {
+            "label": "Original Price",
+            "format": "text"
+          },
+          "discount": {
+            "label": "Discount",
+            "format": "text"
+          },
+          "rating": {
+            "label": "Rating",
+            "format": "number"
+          },
+          "reviewCount": {
+            "label": "Reviews",
+            "format": "number"
+          },
+          "brand": {
+            "label": "Brand",
+            "format": "text"
+          },
+          "productUrl": {
+            "label": "Product URL",
+            "format": "link"
+          }
+        }
+      }
+    }
+  }
+}

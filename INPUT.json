@@ -1,0 +1,11 @@
+{
+  "startUrls": "https://www.daraz.pk/womens-fashion/",
+  "maxProducts": 50,
+  "maxPages": 5,
+  "sortBy": "popularity",
+  "includeOutOfStock": false,
+  "proxyConfiguration": {
+    "useApifyProxy": true,
+    "apifyProxyGroups": ["RESIDENTIAL"]
+  }
+}

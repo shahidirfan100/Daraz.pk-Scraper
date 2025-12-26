@@ -1,0 +1,38 @@
+{
+  "name": "daraz-pk-scraper",
+  "version": "1.0.0",
+  "description": "High-performance Daraz.pk product scraper with intelligent JSON API extraction and HTML fallback.",
+  "type": "module",
+  "dependencies": {
+    "apify": "^3.5.2",
+    "crawlee": "^3.15.3",
+    "cheerio": "^1.0.0-rc.12",
+    "got-scraping": "^4.1.2"
+  },
+  "devDependencies": {
+    "eslint": "^9.0.0"
+  },
+  "scripts": {
+    "start": "node src/main.js",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint",
+    "lint:fix": "eslint --fix",
+    "test": "echo \"Error: no tests yet\" && exit 1"
+  },
+  "author": "Shahid Irfan",
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shahidirfan/daraz-pk-scraper"
+  },
+  "keywords": [
+    "daraz",
+    "scraper",
+    "ecommerce",
+    "pakistan",
+    "products",
+    "apify",
+    "crawler"
+  ]
+}
