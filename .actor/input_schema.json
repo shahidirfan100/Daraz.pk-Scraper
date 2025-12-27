@@ -7,9 +7,9 @@
     "startUrls": {
       "title": "Multiple Start URLs",
       "type": "string",
-      "description": "List of Daraz.pk URLs to scrape from (one URL per line). Useful for scraping multiple categories. Overrides category URL and search query.",
-      "editor": "textfield",
-      "prefill": "https://www.daraz.pk/womens-fashion/"
+      "description": "List of Daraz.pk URLs to scrape (one URL per line). Useful for scraping multiple categories. Overrides category URL and search query.",
+      "editor": "textarea",
+      "prefill": "https://www.daraz.pk/womens-fashion/\nhttps://www.daraz.pk/mens-fashion/"
     },
     "searchQuery": {
       "title": "Search Query",

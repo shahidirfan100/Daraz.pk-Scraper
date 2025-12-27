@@ -19,7 +19,7 @@ async function main() {
             sortBy = 'popularity',
             includeOutOfStock = false,
             proxyConfiguration,
-            usePlaywright = false, // Auto-detect or force Playwright
+            usePlaywright = false,
         } = input;
 
         const parsedMaxProducts = Number(maxProducts);
@@ -29,7 +29,7 @@ async function main() {
             : (Number.isFinite(parsedMaxProducts) && parsedMaxProducts > 0 ? parsedMaxProducts : 100);
         const MAX_PAGES = parsedMaxPages === 0
             ? Infinity
-            : (Number.isFinite(parsedMaxPages) && parsedMaxPages > 0 ? parsedMaxPages : 50);
+            : (Number.isFinite(parsedMaxPages) && parsedMaxPages > 0 ? parsedMaxProducts : 50);
 
         // Build initial URLs
         const initial = [];
@@ -154,6 +154,8 @@ async function main() {
 
         function buildApiUrl(url, page = 1) {
             const apiUrl = new URL(url);
+            // Remove page param to avoid duplication
+            apiUrl.searchParams.delete('page');
             apiUrl.searchParams.set('ajax', 'true');
             apiUrl.searchParams.set('page', String(page));
             return apiUrl;
@@ -165,9 +167,6 @@ async function main() {
             return typeof value?.then === 'function' ? await value : value;
         }
 
-        /**
-         * Enhanced headers for stealth
-         */
         function buildStealthHeaders(url, userAgent) {
             return {
                 'accept': 'application/json, text/plain, */*',
@@ -186,15 +185,12 @@ async function main() {
             };
         }
 
-        /**
-         * Priority 1: Extract product data from Daraz JSON API response
-         */
         async function fetchProductsFromApi(url, page = 1) {
             try {
                 const apiUrl = buildApiUrl(url, page);
                 const userAgent = pickUserAgent();
 
-                log.info(`[API] Fetching page ${page}: ${apiUrl.href}`);
+                log.debug(`Fetching API page ${page}`);
 
                 const proxyUrl = await resolveProxyUrl();
 
@@ -212,16 +208,13 @@ async function main() {
                 await randomDelay(800, 1500);
                 const response = await gotScraping(requestOptions);
 
-                log.info(`[API] Response status: ${response.statusCode}, Content-Type: ${response.headers['content-type']}`);
-
                 if (response.statusCode >= 400) {
-                    log.warning(`[API] Failed with status ${response.statusCode}`);
+                    log.warning(`API failed: ${response.statusCode}`);
                     return { products: [], totalPages: 0, success: false };
                 }
 
                 const data = response.body;
 
-                // Try multiple JSON paths for Daraz API structure
                 const listItems = data?.mods?.listItems
                     || data?.mainInfo?.mods?.listItems
                     || data?.items
@@ -237,7 +230,7 @@ async function main() {
                     || 1;
 
                 if (Array.isArray(listItems) && listItems.length) {
-                    log.info(`[API] ✓ Extracted ${listItems.length} products from JSON API`);
+                    log.info(`Page ${page}: ${listItems.length} products extracted`);
                     return {
                         products: listItems,
                         totalPages: Number(totalPages) || 1,
@@ -245,23 +238,19 @@ async function main() {
                     };
                 }
 
-                log.debug(`[API] No products found in API response structure`);
+                log.debug(`No products in API response`);
                 return { products: [], totalPages: 0, success: false };
             } catch (error) {
-                log.warning(`[API] Request failed: ${error.message}`);
+                log.warning(`API request failed: ${error.message}`);
                 return { products: [], totalPages: 0, success: false };
             }
         }
 
-        /**
-         * Priority 1.5: Extract embedded JSON from HTML
-         */
         function extractEmbeddedJson(body) {
             const products = [];
             let totalPages = 0;
             if (!body) return { products, totalPages };
 
-            // Enhanced patterns for Daraz's embedded JSON
             const patterns = [
                 /window\.pageData\s*=\s*(\{[\s\S]*?\});?\s*(?:window\.|<\/script>)/m,
                 /window\.__APP_DATA__\s*=\s*(\{[\s\S]*?\});?\s*(?:window\.|<\/script>)/m,
@@ -279,7 +268,6 @@ async function main() {
                     const jsonStr = match[1].trim();
                     const parsed = JSON.parse(jsonStr);
 
-                    // Try multiple paths in the parsed object
                     const listItems = parsed?.mods?.listItems
                         || parsed?.mainInfo?.mods?.listItems
                         || parsed?.data?.items
@@ -288,52 +276,26 @@ async function main() {
                         || [];
 
                     if (Array.isArray(listItems) && listItems.length) {
-                        log.info(`[JSON Embedded] ✓ Found ${listItems.length} products in ${regex.source.substring(0, 30)}...`);
+                        log.debug(`Embedded JSON: ${listItems.length} products`);
                         products.push(...listItems);
                     }
 
-                    totalPages = totalPages
-                        || parsed?.mainInfo?.pageTotal
-                        || parsed?.pageInfo?.pageTotal
-                        || parsed?.totalPages
-                        || 0;
+                    totalPages = totalPages || parsed?.mainInfo?.pageTotal || parsed?.pageInfo?.pageTotal || parsed?.totalPages || 0;
                 } catch (err) {
-                    log.debug(`[JSON Embedded] Failed to parse pattern ${regex.source.substring(0, 30)}: ${err.message}`);
+                    log.debug(`JSON parse failed: ${err.message}`);
                 }
-            }
-
-            // Also check for JSON-LD structured data
-            try {
-                const jsonLdPattern = /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
-                let jsonLdMatch;
-                while ((jsonLdMatch = jsonLdPattern.exec(body)) !== null) {
-                    const jsonLd = JSON.parse(jsonLdMatch[1]);
-                    if (jsonLd['@type'] === 'ItemList' && Array.isArray(jsonLd.itemListElement)) {
-                        log.info(`[JSON-LD] ✓ Found ${jsonLd.itemListElement.length} products in structured data`);
-                        products.push(...jsonLd.itemListElement.map(item => item.item || item));
-                    }
-                }
-            } catch (err) {
-                log.debug(`[JSON-LD] Not found or failed to parse`);
             }
 
             return { products, totalPages };
         }
 
-        /**
-         * Parse product from API JSON
-         */
         function parseProductFromApi(item) {
             return normalizeProduct(item, 'api');
         }
 
-        /**
-         * Priority 2: Fallback HTML parsing with improved selectors
-         */
         function parseProductsFromHtml($, currentUrl) {
             const products = [];
 
-            // Multiple selector strategies for Daraz product cards
             const selectors = [
                 '[data-qa-locator="product-item"]',
                 '.gridItem',
@@ -347,7 +309,7 @@ async function main() {
             for (const selector of selectors) {
                 $items = $(selector);
                 if ($items.length > 0) {
-                    log.info(`[HTML] Using selector: ${selector} (${$items.length} items)`);
+                    log.debug(`Using selector: ${selector}`);
                     break;
                 }
             }
@@ -356,43 +318,34 @@ async function main() {
                 try {
                     const $item = $(el);
 
-                    // Extract product link
                     const $link = $item.find('a[href*="/products/"], a[href*=".html"]').first();
                     const productUrl = $link.attr('href');
 
                     if (!productUrl) return;
 
-                    // Extract image
                     const $img = $item.find('img').first();
                     const imageUrl = $img.attr('data-src') || $img.attr('src');
 
-                    // Extract title
                     const title = $link.attr('title')
                         || $img.attr('alt')
                         || $item.find('[class*="title"], [class*="name"]').first().text().trim()
                         || $link.text().trim();
 
-                    // Extract price with multiple selector fallbacks
                     const $price = $item.find('.price--NVB62, [class*="price"]:not([class*="original"]):not([class*="strike"])').first();
                     const price = $price.text().trim();
 
-                    // Extract original price
                     const $originalPrice = $item.find('[class*="origPrice"], [class*="original"], .price--strikethrough').first();
                     const originalPrice = $originalPrice.text().trim();
 
-                    // Extract discount
                     const $discount = $item.find('[class*="discount"], .discount--HADmk').first();
                     const discount = $discount.text().trim();
 
-                    // Extract rating
                     const $rating = $item.find('[class*="rating"], .rating--QhLMl').first();
                     const rating = $rating.text().trim();
 
-                    // Extract reviews
                     const $reviews = $item.find('[class*="review"], .rating__review--ygkUy').first();
                     const reviews = $reviews.text().replace(/\D/g, '');
 
-                    // Extract product ID from data attribute or URL
                     const itemId = $item.attr('data-item-id')
                         || $item.attr('data-id')
                         || productUrl.match(/i(\d+)-s/)?.[1]
@@ -417,20 +370,17 @@ async function main() {
 
                     products.push(product);
                 } catch (err) {
-                    log.debug(`[HTML] Failed to parse product: ${err.message}`);
+                    log.debug(`HTML parse error: ${err.message}`);
                 }
             });
 
             if (products.length > 0) {
-                log.info(`[HTML] ✓ Extracted ${products.length} products from HTML`);
+                log.debug(`HTML: ${products.length} products`);
             }
 
             return products;
         }
 
-        /**
-         * Find next page URL
-         */
         function findNextPageUrl($, currentUrl) {
             const nextLink = $('link[rel="next"]').attr('href')
                 || $('a[aria-label*="Next"], .ant-pagination-next a, a.next').attr('href')
@@ -446,9 +396,6 @@ async function main() {
             return null;
         }
 
-        /**
-         * Cheerio-based crawler (default, fast)
-         */
         const cheerioCrawler = new CheerioCrawler({
             proxyConfiguration: proxyConf,
             maxRequestRetries: 3,
@@ -477,16 +424,15 @@ async function main() {
                 const pageKey = `${request.url}|${pageNo}`;
 
                 if (processedPages.has(pageKey)) {
-                    log.debug(`[Cheerio] Skipping duplicate: ${pageKey}`);
+                    log.debug(`Skipping duplicate page`);
                     return;
                 }
                 processedPages.add(pageKey);
 
-                log.info(`[Cheerio] Processing page ${pageNo}: ${request.url}`);
+                log.debug(`Processing page ${pageNo}`);
 
                 await randomDelay(500, 1200);
 
-                // Priority 1: Try JSON API approach
                 const apiResult = await fetchProductsFromApi(request.url, pageNo);
 
                 let products = [];
@@ -494,7 +440,6 @@ async function main() {
                 if (apiResult.success && apiResult.products.length > 0) {
                     products = apiResult.products.map(parseProductFromApi).filter(Boolean);
                 } else {
-                    // Priority 1.5: Embedded JSON in HTML
                     const bodyStr = typeof body === 'string' ? body : body?.toString?.() || '';
                     const embedded = extractEmbeddedJson(bodyStr);
 
@@ -503,59 +448,60 @@ async function main() {
                         apiResult.totalPages = apiResult.totalPages || embedded.totalPages;
                     }
 
-                    // Priority 2: Fallback to HTML parsing
                     if (!products.length) {
-                        log.info('[Cheerio] Falling back to HTML parsing');
+                        log.debug('Falling back to HTML parsing');
                         products = parseProductsFromHtml($, request.url);
                     }
                 }
 
                 if (!products.length) {
-                    log.warning(`[Cheerio] ⚠️  No products found on page ${pageNo}`);
+                    log.warning(`No products on page ${pageNo}`);
                     failureCount++;
 
                     if (failureCount >= MAX_FAILURES && !shouldUsePlaywright) {
-                        log.warning(`[Cheerio] ${failureCount} consecutive failures. Switching to Playwright...`);
+                        log.warning(`${failureCount} failures - switching to Playwright`);
                         shouldUsePlaywright = true;
                     }
                     return;
                 }
 
-                // Reset failure count on success
                 failureCount = 0;
 
-                // Log first product sample for debugging
-                if (products.length > 0) {
-                    log.info(`[Sample Product] ${JSON.stringify(products[0], null, 2)}`);
+                // Sample log on first page only
+                if (pageNo === 1 && products.length > 0) {
+                    const s = products[0];
+                    log.info(`Sample: "${s.title?.substring(0, 50)}..." (${s.productId}) Rs.${s.price}`);
                 }
 
-                // Filter out of stock
                 if (!includeOutOfStock) {
                     products = products.filter(p => p.inStock !== false);
                 }
 
-                // Deduplicate by productId
                 const uniqueProducts = products.filter(p => {
                     if (!p.productId || seenProductIds.has(p.productId)) return false;
                     seenProductIds.add(p.productId);
                     return true;
                 });
 
-                // Save products
+                // Stop if all duplicates
+                if (uniqueProducts.length === 0 && pageNo > 1) {
+                    log.warning(`All ${products.length} products on page ${pageNo} are duplicates - stopping`);
+                    return;
+                }
+
                 const remaining = MAX_PRODUCTS - savedCount;
                 const toSave = uniqueProducts.slice(0, Math.max(0, remaining));
 
                 if (toSave.length > 0) {
                     await Dataset.pushData(toSave);
                     savedCount += toSave.length;
-                    log.info(`[Cheerio] ✓ Saved ${toSave.length} products (Total: ${savedCount}/${MAX_PRODUCTS})`);
+                    log.info(`✓ Saved ${toSave.length} (Total: ${savedCount}/${MAX_PRODUCTS})`);
                 }
 
-                // Handle pagination
+                // Pagination
                 if (savedCount < MAX_PRODUCTS && pageNo < MAX_PAGES) {
                     const nextPage = pageNo + 1;
 
-                    // Try API pagination first
                     const apiTotal = apiResult.totalPages || 0;
                     if (apiResult.success && (!apiTotal || nextPage <= apiTotal)) {
                         await randomDelay(1000, 2000);
@@ -563,11 +509,10 @@ async function main() {
                             url: request.url,
                             userData: { pageNo: nextPage },
                         }]);
-                        log.info(`[Cheerio] → Enqueued page ${nextPage} (API pagination)`);
+                        log.debug(`→ Page ${nextPage} queued`);
                         return;
                     }
 
-                    // Fallback to HTML pagination
                     const nextPageUrl = findNextPageUrl($, request.url);
                     if (nextPageUrl) {
                         await randomDelay(1000, 2000);
@@ -575,168 +520,22 @@ async function main() {
                             url: nextPageUrl,
                             userData: { pageNo: nextPage },
                         }]);
-                        log.info(`[Cheerio] → Enqueued page ${nextPage}: ${nextPageUrl}`);
-                    } else {
-                        log.info(`[Cheerio] No more pages to scrape`);
+                        log.debug(`→ Page ${nextPage} queued`);
                     }
                 }
             },
         });
 
-        /**
-         * Playwright-based crawler (fallback for JS-heavy pages)
-         */
-        const playwrightCrawler = new PlaywrightCrawler({
-            proxyConfiguration: proxyConf,
-            maxRequestRetries: 3,
-            useSessionPool: true,
-            sessionPoolOptions: {
-                maxPoolSize: 10,
-                sessionOptions: {
-                    maxUsageCount: 5,
-                },
-            },
-            maxConcurrency: 2,
-            requestHandlerTimeoutSecs: 180,
-            launchContext: {
-                launchOptions: {
-                    headless: true,
-                    args: [
-                        '--disable-blink-features=AutomationControlled',
-                        '--disable-web-security',
-                        '--disable-features=IsolateOrigins,site-per-process',
-                        '--no-sandbox',
-                        '--disable-setuid-sandbox',
-                    ],
-                },
-            },
-
-            async requestHandler({ request, page, crawler: crawlerInstance }) {
-                const pageNo = request.userData?.pageNo || 1;
-                const pageKey = `${request.url}|${pageNo}`;
-
-                if (processedPages.has(pageKey)) {
-                    log.debug(`[Playwright] Skipping duplicate: ${pageKey}`);
-                    return;
-                }
-                processedPages.add(pageKey);
-
-                log.info(`[Playwright] Processing page ${pageNo}: ${request.url}`);
-
-                // Wait for content to load
-                await page.waitForLoadState('networkidle', { timeout: 30000 });
-                await randomDelay(1500, 3000);
-
-                // Try to extract embedded JSON from window objects
-                const embeddedData = await page.evaluate(() => {
-                    const sources = [
-                        window.pageData,
-                        window.__APP_DATA__,
-                        window.__INITIAL_STATE__,
-                        window.__INIT_PROPS__,
-                    ];
-
-                    for (const source of sources) {
-                        if (source) {
-                            const items = source?.mods?.listItems
-                                || source?.mainInfo?.mods?.listItems
-                                || source?.items
-                                || source?.data?.items
-                                || [];
-                            if (Array.isArray(items) && items.length > 0) {
-                                return {
-                                    products: items,
-                                    totalPages: source?.mainInfo?.pageTotal || source?.totalPages || 0,
-                                };
-                            }
-                        }
-                    }
-                    return { products: [], totalPages: 0 };
-                });
-
-                let products = [];
-
-                if (embeddedData.products.length > 0) {
-                    log.info(`[Playwright] ✓ Extracted ${embeddedData.products.length} products from window objects`);
-                    products = embeddedData.products.map(p => normalizeProduct(p, 'playwright-json')).filter(Boolean);
-                } else {
-                    // Fallback to HTML parsing
-                    log.info('[Playwright] Falling back to HTML parsing');
-                    const content = await page.content();
-                    const { parseProductsFromHtml: parseHtml } = await import('cheerio').then(cheerio => {
-                        const $ = cheerio.load(content);
-                        return { parseProductsFromHtml: () => parseProductsFromHtml($, request.url) };
-                    });
-                    products = parseHtml();
-                }
-
-                if (!products.length) {
-                    log.warning(`[Playwright] ⚠️  No products found on page ${pageNo}`);
-                    return;
-                }
-
-                log.info(`[Sample Product] ${JSON.stringify(products[0], null, 2)}`);
-
-                // Filter and deduplicate
-                if (!includeOutOfStock) {
-                    products = products.filter(p => p.inStock !== false);
-                }
-
-                const uniqueProducts = products.filter(p => {
-                    if (!p.productId || seenProductIds.has(p.productId)) return false;
-                    seenProductIds.add(p.productId);
-                    return true;
-                });
-
-                const remaining = MAX_PRODUCTS - savedCount;
-                const toSave = uniqueProducts.slice(0, Math.max(0, remaining));
-
-                if (toSave.length > 0) {
-                    await Dataset.pushData(toSave);
-                    savedCount += toSave.length;
-                    log.info(`[Playwright] ✓ Saved ${toSave.length} products (Total: ${savedCount}/${MAX_PRODUCTS})`);
-                }
-
-                // Pagination
-                if (savedCount < MAX_PRODUCTS && pageNo < MAX_PAGES) {
-                    const nextPage = pageNo + 1;
-                    const totalPages = embeddedData.totalPages || 0;
-
-                    if (!totalPages || nextPage <= totalPages) {
-                        await randomDelay(2000, 4000);
-                        await crawlerInstance.addRequests([{
-                            url: request.url,
-                            userData: { pageNo: nextPage },
-                        }]);
-                        log.info(`[Playwright] → Enqueued page ${nextPage}`);
-                    }
-                }
-            },
-        });
-
-        // Run the appropriate crawler
+        // Run crawler
         const urls = initial.map(url => ({ url, userData: { pageNo: 1 } }));
 
-        if (shouldUsePlaywright) {
-            log.info('🎭 Starting Playwright crawler...');
-            await playwrightCrawler.run(urls);
-        } else {
-            log.info('⚡ Starting Cheerio crawler (fast mode)...');
-            await cheerioCrawler.run(urls);
+        log.info('Starting scraper...');
+        await cheerioCrawler.run(urls);
 
-            // If Cheerio failed completely and Playwright wasn't already tried
-            if (savedCount === 0 && !shouldUsePlaywright) {
-                log.warning('⚠️  Cheerio failed to extract any products. Retrying with Playwright...');
-                processedPages.clear();
-                seenProductIds.clear();
-                await playwrightCrawler.run(urls);
-            }
-        }
-
-        log.info(`✅ Scraping completed. Total products saved: ${savedCount}`);
+        log.info(`✅ Completed. Total products: ${savedCount}`);
 
     } catch (error) {
-        log.error(`❌ Fatal error: ${error.message}`);
+        log.error(`Fatal error: ${error.message}`);
         log.exception(error, 'Main function failed');
         throw error;
     } finally {
@@ -745,6 +544,6 @@ async function main() {
 }
 
 main().catch(err => {
-    log.exception(err, 'Main function crashed');
+    log.exception(err, 'Main crashed');
     process.exit(1);
 });
