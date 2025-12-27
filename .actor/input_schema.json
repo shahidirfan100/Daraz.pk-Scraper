@@ -54,14 +54,33 @@
       "type": "string",
       "description": "Product sorting criteria.",
       "default": "popularity",
-      "enum": ["popularity", "priceasc", "pricedesc", "time", "rating"],
-      "enumTitles": ["Popularity", "Price: Low to High", "Price: High to Low", "Newest First", "Top Rated"],
+      "enum": [
+        "popularity",
+        "priceasc",
+        "pricedesc",
+        "time",
+        "rating"
+      ],
+      "enumTitles": [
+        "Popularity",
+        "Price: Low to High",
+        "Price: High to Low",
+        "Newest First",
+        "Top Rated"
+      ],
       "editor": "select"
     },
     "includeOutOfStock": {
       "title": "Include Out of Stock",
       "type": "boolean",
       "description": "Include products that are currently out of stock.",
+      "default": false,
+      "editor": "checkbox"
+    },
+    "usePlaywright": {
+      "title": "Use Playwright (Advanced)",
+      "type": "boolean",
+      "description": "Force use of Playwright browser automation instead of fast Cheerio crawler. Enable this if the scraper fails to extract data with the default method. Note: Slower but more reliable for JavaScript-heavy pages.",
       "default": false,
       "editor": "checkbox"
     },
@@ -72,11 +91,15 @@
       "editor": "proxy",
       "default": {
         "useApifyProxy": true,
-        "apifyProxyGroups": ["RESIDENTIAL"]
+        "apifyProxyGroups": [
+          "RESIDENTIAL"
+        ]
       },
       "prefill": {
         "useApifyProxy": true,
-        "apifyProxyGroups": ["RESIDENTIAL"]
+        "apifyProxyGroups": [
+          "RESIDENTIAL"
+        ]
       }
     }
   },
