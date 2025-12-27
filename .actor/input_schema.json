@@ -8,7 +8,7 @@
       "title": "Multiple Start URLs",
       "type": "string",
       "description": "List of Daraz.pk URLs to scrape from (one URL per line). Useful for scraping multiple categories. Overrides category URL and search query.",
-      "editor": "textarea",
+      "editor": "textfield",
       "prefill": "https://www.daraz.pk/womens-fashion/"
     },
     "searchQuery": {
@@ -74,13 +74,6 @@
       "title": "Include Out of Stock",
       "type": "boolean",
       "description": "Include products that are currently out of stock.",
-      "default": false,
-      "editor": "checkbox"
-    },
-    "usePlaywright": {
-      "title": "Use Playwright (Advanced)",
-      "type": "boolean",
-      "description": "Force use of Playwright browser automation instead of fast Cheerio crawler. Enable this if the scraper fails to extract data with the default method. Note: Slower but more reliable for JavaScript-heavy pages.",
       "default": false,
       "editor": "checkbox"
     },

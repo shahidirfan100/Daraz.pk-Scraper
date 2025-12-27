@@ -599,13 +599,14 @@ async function main() {
             maxConcurrency: 2,
             requestHandlerTimeoutSecs: 180,
             launchContext: {
-                launcher: 'chromium',
-                launcherOptions: {
+                launchOptions: {
                     headless: true,
                     args: [
                         '--disable-blink-features=AutomationControlled',
                         '--disable-web-security',
                         '--disable-features=IsolateOrigins,site-per-process',
+                        '--no-sandbox',
+                        '--disable-setuid-sandbox',
                     ],
                 },
             },
