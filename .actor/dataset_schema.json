@@ -8,6 +8,7 @@
         "fields": [
           "imageUrl",
           "title",
+          "description",
           "price",
           "originalPrice",
           "discount",
@@ -26,6 +27,10 @@
           },
           "title": {
             "label": "Product Title",
+            "format": "text"
+          },
+          "description": {
+            "label": "Description",
             "format": "text"
           },
           "price": {

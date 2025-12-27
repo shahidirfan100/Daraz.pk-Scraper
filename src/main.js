@@ -131,6 +131,7 @@ async function main() {
             return {
                 productId: String(raw.itemId || raw.productId || raw.id || raw.nid || '').trim() || null,
                 title: raw.name || raw.title || raw.productTitle || null,
+                description: raw.description || raw.desc || raw.productDescription || raw.shortDescription || null,
                 brand: raw.brandName || raw.brand || null,
                 price,
                 currency: 'PKR',
