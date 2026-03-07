@@ -1,30 +1,36 @@
 {
   "title": "Daraz.pk Product Scraper",
-  "description": "Scrape products from Daraz.pk e-commerce platform. Supports categories, search queries, and advanced filtering with intelligent JSON API + HTML parsing.",
+  "description": "Scrape product listings from Daraz.pk with start URLs or search queries and pagination controls.",
   "type": "object",
   "schemaVersion": 1,
   "properties": {
     "startUrls": {
       "title": "Multiple Start URLs",
-      "type": "string",
-      "description": "List of Daraz.pk URLs to scrape (one URL per line). Useful for scraping multiple categories. Overrides category URL and search query.",
-      "editor": "textarea",
-      "prefill": "https://www.daraz.pk/womens-fashion/\nhttps://www.daraz.pk/mens-fashion/"
+      "type": "array",
+      "description": "List of Daraz.pk category or catalog URLs to scrape. Overrides search query.",
+      "editor": "stringList",
+      "items": {
+        "type": "string"
+      },
+      "prefill": [
+        "https://www.daraz.pk/womens-fashion/"
+      ]
     },
     "searchQuery": {
       "title": "Search Query",
       "type": "string",
-      "description": "Product search keywords (e.g., 'iphone 15', 'dress', 'laptop'). Leave empty to scrape from category URL.",
-      "editor": "textfield"
+      "description": "Product search keywords (e.g., 'iphone 15', 'dress', 'laptop'). Leave empty to scrape start URLs.",
+      "editor": "textfield",
+      "prefill": ""
     },
     "maxProducts": {
       "title": "Maximum Products",
       "type": "integer",
       "description": "Maximum number of products to scrape. Set to 0 for unlimited.",
       "minimum": 0,
-      "default": 100,
+      "default": 20,
       "editor": "number",
-      "prefill": 100
+      "prefill": 20
     },
     "maxPages": {
       "title": "Maximum Pages",
@@ -33,49 +39,15 @@
       "minimum": 1,
       "default": 50,
       "editor": "number",
-      "prefill": 50
-    },
-    "minPrice": {
-      "title": "Minimum Price (PKR)",
-      "type": "number",
-      "description": "Filter products by minimum price in Pakistani Rupees.",
-      "minimum": 0,
-      "editor": "number"
-    },
-    "maxPrice": {
-      "title": "Maximum Price (PKR)",
-      "type": "number",
-      "description": "Filter products by maximum price in Pakistani Rupees.",
-      "minimum": 0,
-      "editor": "number"
-    },
-    "sortBy": {
-      "title": "Sort By",
-      "type": "string",
-      "description": "Product sorting criteria.",
-      "default": "popularity",
-      "enum": [
-        "popularity",
-        "priceasc",
-        "pricedesc",
-        "time",
-        "rating"
-      ],
-      "enumTitles": [
-        "Popularity",
-        "Price: Low to High",
-        "Price: High to Low",
-        "Newest First",
-        "Top Rated"
-      ],
-      "editor": "select"
+      "prefill": 3
     },
     "includeOutOfStock": {
       "title": "Include Out of Stock",
       "type": "boolean",
       "description": "Include products that are currently out of stock.",
       "default": false,
-      "editor": "checkbox"
+      "editor": "checkbox",
+      "prefill": false
     },
     "proxyConfiguration": {
       "title": "Proxy Configuration",
@@ -83,16 +55,7 @@
       "description": "Proxy settings for bypassing rate limits. Residential proxies recommended for best results.",
       "editor": "proxy",
       "default": {
-        "useApifyProxy": true,
-        "apifyProxyGroups": [
-          "RESIDENTIAL"
-        ]
-      },
-      "prefill": {
-        "useApifyProxy": true,
-        "apifyProxyGroups": [
-          "RESIDENTIAL"
-        ]
+        "useApifyProxy": false
       }
     }
   },

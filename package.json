@@ -1,17 +1,15 @@
 {
   "name": "daraz-pk-scraper",
   "version": "1.0.0",
-  "description": "High-performance Daraz.pk product scraper with intelligent JSON API extraction and HTML fallback.",
+  "description": "API-based Daraz.pk product scraper with rich listing data extraction.",
   "type": "module",
   "dependencies": {
-    "apify": "^3.5.2",
-    "crawlee": "^3.15.3",
-    "cheerio": "^1.0.0-rc.12",
-    "playwright": "1.56.1",
-    "got-scraping": "^4.1.2"
+    "apify": "^3.6.0",
+    "got-scraping": "^4.2.1"
   },
   "devDependencies": {
-    "eslint": "^9.0.0"
+    "eslint": "^9.0.0",
+    "eslint-config-prettier": "^10.1.8"
   },
   "scripts": {
     "start": "node src/main.js",
@@ -34,6 +32,6 @@
     "pakistan",
     "products",
     "apify",
-    "crawler"
+    "api"
   ]
 }

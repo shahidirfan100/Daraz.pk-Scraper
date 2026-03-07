@@ -1,11 +1,12 @@
 {
-  "startUrls": "https://www.daraz.pk/womens-fashion/\nhttps://www.daraz.pk/mens-fashion/\nhttps://www.daraz.pk/electronic-devices/",
-  "maxProducts": 50,
-  "maxPages": 5,
-  "sortBy": "popularity",
+  "startUrls": [
+    "https://www.daraz.pk/womens-fashion/"
+  ],
+  "searchQuery": "",
+  "maxProducts": 20,
+  "maxPages": 3,
   "includeOutOfStock": false,
   "proxyConfiguration": {
-    "useApifyProxy": true,
-    "apifyProxyGroups": ["RESIDENTIAL"]
+    "useApifyProxy": false
   }
 }

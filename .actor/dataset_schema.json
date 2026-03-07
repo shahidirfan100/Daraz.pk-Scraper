@@ -8,13 +8,15 @@
         "fields": [
           "imageUrl",
           "title",
-          "description",
-          "price",
-          "originalPrice",
-          "discount",
+          "priceText",
+          "originalPriceText",
+          "discountText",
           "rating",
           "reviewCount",
+          "soldCount",
           "brand",
+          "sellerName",
+          "location",
           "productUrl"
         ]
       },
@@ -29,19 +31,15 @@
             "label": "Product Title",
             "format": "text"
           },
-          "description": {
-            "label": "Description",
-            "format": "text"
-          },
-          "price": {
+          "priceText": {
             "label": "Price",
             "format": "text"
           },
-          "originalPrice": {
+          "originalPriceText": {
             "label": "Original Price",
             "format": "text"
           },
-          "discount": {
+          "discountText": {
             "label": "Discount",
             "format": "text"
           },
@@ -53,8 +51,20 @@
             "label": "Reviews",
             "format": "number"
           },
+          "soldCount": {
+            "label": "Sold",
+            "format": "number"
+          },
           "brand": {
             "label": "Brand",
+            "format": "text"
+          },
+          "sellerName": {
+            "label": "Seller",
+            "format": "text"
+          },
+          "location": {
+            "label": "Location",
             "format": "text"
           },
           "productUrl": {
