@@ -11,5 +11,9 @@ storage
 # installed files
 node_modules
 
+# local diagnostics and discovery scripts
+scripts
+.tmp-*
+
 # git folder
 .git

@@ -1,37 +1,39 @@
 {
-  "name": "daraz-pk-scraper",
-  "version": "1.0.0",
-  "description": "API-based Daraz.pk product scraper with rich listing data extraction.",
-  "type": "module",
-  "dependencies": {
-    "apify": "^3.6.0",
-    "got-scraping": "^4.2.1"
-  },
-  "devDependencies": {
-    "eslint": "^9.0.0",
-    "eslint-config-prettier": "^10.1.8"
-  },
-  "scripts": {
-    "start": "node src/main.js",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
-    "lint": "eslint",
-    "lint:fix": "eslint --fix",
-    "test": "echo \"Error: no tests yet\" && exit 1"
-  },
-  "author": "Shahid Irfan",
-  "license": "ISC",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/shahidirfan/daraz-pk-scraper"
-  },
-  "keywords": [
-    "daraz",
-    "scraper",
-    "ecommerce",
-    "pakistan",
-    "products",
-    "apify",
-    "api"
-  ]
+    "name": "daraz-pk-scraper",
+    "version": "1.0.0",
+    "description": "Daraz.pk product scraper for category listings and keyword searches.",
+    "type": "module",
+    "dependencies": {
+        "apify": "^3.7.2",
+        "impit": "0.14.8"
+    },
+    "devDependencies": {
+        "@eslint/js": "^9.39.5",
+        "eslint": "^9.39.5",
+        "eslint-config-prettier": "^10.1.8",
+        "globals": "^17.14.0",
+        "prettier": "^3.9.10"
+    },
+    "scripts": {
+        "start": "node src/main.js",
+        "format": "prettier --write .",
+        "format:check": "prettier --check .",
+        "lint": "eslint",
+        "lint:fix": "eslint --fix"
+    },
+    "author": "Shahid Irfan",
+    "license": "ISC",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/shahidirfan/daraz-pk-scraper"
+    },
+    "keywords": [
+        "daraz",
+        "scraper",
+        "ecommerce",
+        "pakistan",
+        "products",
+        "apify",
+        "api"
+    ]
 }

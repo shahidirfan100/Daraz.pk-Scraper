@@ -1,64 +1,57 @@
 {
-  "title": "Daraz.pk Product Scraper",
-  "description": "Scrape product listings from Daraz.pk with start URLs or search queries and pagination controls.",
-  "type": "object",
-  "schemaVersion": 1,
-  "properties": {
-    "startUrls": {
-      "title": "Multiple Start URLs",
-      "type": "array",
-      "description": "List of Daraz.pk category or catalog URLs to scrape. Overrides search query.",
-      "editor": "stringList",
-      "items": {
-        "type": "string"
-      },
-      "prefill": [
-        "https://www.daraz.pk/womens-fashion/"
-      ]
+    "title": "Daraz.pk Product Scraper",
+    "description": "Scrape Daraz.pk product listings from category URLs or a search query. Collect prices, discounts, ratings, reviews, stock state, seller details, and product links.",
+    "type": "object",
+    "schemaVersion": 1,
+    "properties": {
+        "startUrls": {
+            "title": "Start URLs",
+            "type": "array",
+            "description": "Daraz.pk category or catalog listing URLs. When supplied, these are used and searchQuery is ignored.",
+            "editor": "stringList",
+            "items": {
+                "type": "string"
+            }
+        },
+        "searchQuery": {
+            "title": "Search Query",
+            "type": "string",
+            "description": "Product search keywords, used when no start URLs are supplied. Defaults to \"dress\" so a run with no other input still returns products.",
+            "editor": "textfield",
+            "prefill": "dress",
+            "default": "dress"
+        },
+        "maxProducts": {
+            "title": "Maximum Products",
+            "type": "integer",
+            "description": "Maximum number of products to save. Set to 0 for unlimited.",
+            "minimum": 0,
+            "default": 20,
+            "editor": "number"
+        },
+        "maxPages": {
+            "title": "Maximum Pages",
+            "type": "integer",
+            "description": "Maximum listing pages to request per URL or search query.",
+            "minimum": 1,
+            "default": 50,
+            "editor": "number"
+        },
+        "includeOutOfStock": {
+            "title": "Include Out of Stock",
+            "type": "boolean",
+            "description": "Include products that are currently out of stock.",
+            "default": false,
+            "editor": "checkbox"
+        },
+        "proxyConfiguration": {
+            "title": "Proxy Configuration",
+            "type": "object",
+            "description": "Optional proxy settings. Leave empty to connect directly. Apify Proxy requires a run on the Apify platform.",
+            "editor": "proxy",
+            "default": {}
+        }
     },
-    "searchQuery": {
-      "title": "Search Query",
-      "type": "string",
-      "description": "Product search keywords (e.g., 'iphone 15', 'dress', 'laptop'). Leave empty to scrape start URLs.",
-      "editor": "textfield",
-      "prefill": ""
-    },
-    "maxProducts": {
-      "title": "Maximum Products",
-      "type": "integer",
-      "description": "Maximum number of products to scrape. Set to 0 for unlimited.",
-      "minimum": 0,
-      "default": 20,
-      "editor": "number",
-      "prefill": 20
-    },
-    "maxPages": {
-      "title": "Maximum Pages",
-      "type": "integer",
-      "description": "Maximum number of listing pages to scrape. Prevents excessive scraping.",
-      "minimum": 1,
-      "default": 50,
-      "editor": "number",
-      "prefill": 3
-    },
-    "includeOutOfStock": {
-      "title": "Include Out of Stock",
-      "type": "boolean",
-      "description": "Include products that are currently out of stock.",
-      "default": false,
-      "editor": "checkbox",
-      "prefill": false
-    },
-    "proxyConfiguration": {
-      "title": "Proxy Configuration",
-      "type": "object",
-      "description": "Proxy settings for bypassing rate limits. Residential proxies recommended for best results.",
-      "editor": "proxy",
-      "default": {
-        "useApifyProxy": false
-      }
-    }
-  },
-  "required": [],
-  "additionalProperties": false
+    "required": [],
+    "additionalProperties": false
 }

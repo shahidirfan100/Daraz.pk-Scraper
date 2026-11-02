@@ -1,19 +1,19 @@
 {
-  "actorSpecification": 1,
-  "name": "daraz-pk-scraper",
-  "version": "1.0",
-  "buildTag": "latest",
-  "dockerfile": "../Dockerfile",
-  "readme": "../README.md",
-  "input": "./input_schema.json",
-  "output": "./output_schema.json",
-  "minMemoryMbytes": 512,
-  "maxMemoryMbytes": 1024,
-  "nodeJsVersion": "22",
-  "storages": {
-    "dataset": "./dataset_schema.json"
-  },
-  "meta": {
-    "generatedBy": "gpt-5-codex"
-  }
+    "actorSpecification": 1,
+    "name": "daraz-pk-scraper",
+    "version": "1.0",
+    "buildTag": "latest",
+    "dockerfile": "../Dockerfile",
+    "readme": "../README.md",
+    "input": "./input_schema.json",
+    "output": "./output_schema.json",
+    "minMemoryMbytes": 512,
+    "maxMemoryMbytes": 1024,
+    "nodeJsVersion": "22",
+    "storages": {
+        "dataset": "./dataset_schema.json"
+    },
+    "meta": {
+        "generatedBy": "DeepSeek V4.1 Flash Free"
+    }
 }

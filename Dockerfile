@@ -1,29 +1,23 @@
-# Pure HTTP actor, so the standard Node 22 runtime is sufficient.
+# Pure HTTP actor. The standard Node 22 runtime is enough.
 FROM apify/actor-node:22
 
-# Check preinstalled packages
-RUN npm ls apify got-scraping
-
-# Copy just package.json and package-lock.json
-# to speed up the build using Docker layer cache.
+# Copy just the package files first to keep the dependency layer cached.
 COPY --chown=myuser:myuser package*.json Dockerfile ./
 
-# Install NPM packages, skip optional and development dependencies to
-# keep the image small. Avoid logging too much and print the dependency
-# tree for debugging
+# Install production dependencies and fail the build if impit's native binary
+# is missing for this platform.
 RUN npm --quiet set progress=false \
-    && npm install --omit=dev --omit=optional \
+    && npm install --omit=dev \
+    && node -e "import('impit').then((m) => console.log('impit OK:', Object.keys(m)))" \
     && echo "Installed NPM packages:" \
     && (npm list --omit=dev --all || true) \
     && echo "Node.js version:" \
     && node --version \
     && echo "NPM version:" \
     && npm --version \
-    && rm -r ~/.npm
+    && rm -rf ~/.npm
 
-# Next, copy the remaining files and directories with the source code.
-# Since we do this after NPM install, quick build will be really fast
-# for most source file changes.
+# Copy the remaining source after the dependency layer.
 COPY --chown=myuser:myuser . ./
 
 CMD ["node", "src/main.js"]

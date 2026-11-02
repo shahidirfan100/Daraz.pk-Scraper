@@ -1,78 +1,78 @@
 {
-  "actorSpecification": 1,
-  "fields": {},
-  "views": {
-    "overview": {
-      "title": "Products Overview",
-      "transformation": {
-        "fields": [
-          "imageUrl",
-          "title",
-          "priceText",
-          "originalPriceText",
-          "discountText",
-          "rating",
-          "reviewCount",
-          "soldCount",
-          "brand",
-          "sellerName",
-          "location",
-          "productUrl"
-        ]
-      },
-      "display": {
-        "component": "table",
-        "properties": {
-          "imageUrl": {
-            "label": "Image",
-            "format": "image"
-          },
-          "title": {
-            "label": "Product Title",
-            "format": "text"
-          },
-          "priceText": {
-            "label": "Price",
-            "format": "text"
-          },
-          "originalPriceText": {
-            "label": "Original Price",
-            "format": "text"
-          },
-          "discountText": {
-            "label": "Discount",
-            "format": "text"
-          },
-          "rating": {
-            "label": "Rating",
-            "format": "number"
-          },
-          "reviewCount": {
-            "label": "Reviews",
-            "format": "number"
-          },
-          "soldCount": {
-            "label": "Sold",
-            "format": "number"
-          },
-          "brand": {
-            "label": "Brand",
-            "format": "text"
-          },
-          "sellerName": {
-            "label": "Seller",
-            "format": "text"
-          },
-          "location": {
-            "label": "Location",
-            "format": "text"
-          },
-          "productUrl": {
-            "label": "Product URL",
-            "format": "link"
-          }
+    "actorSpecification": 1,
+    "fields": {},
+    "views": {
+        "overview": {
+            "title": "Products Overview",
+            "transformation": {
+                "fields": [
+                    "imageUrl",
+                    "title",
+                    "priceText",
+                    "originalPriceText",
+                    "discountText",
+                    "rating",
+                    "reviewCount",
+                    "soldCount",
+                    "brand",
+                    "sellerName",
+                    "location",
+                    "productUrl"
+                ]
+            },
+            "display": {
+                "component": "table",
+                "properties": {
+                    "imageUrl": {
+                        "label": "Image",
+                        "format": "image"
+                    },
+                    "title": {
+                        "label": "Product Title",
+                        "format": "text"
+                    },
+                    "priceText": {
+                        "label": "Price",
+                        "format": "text"
+                    },
+                    "originalPriceText": {
+                        "label": "Original Price",
+                        "format": "text"
+                    },
+                    "discountText": {
+                        "label": "Discount",
+                        "format": "text"
+                    },
+                    "rating": {
+                        "label": "Rating",
+                        "format": "number"
+                    },
+                    "reviewCount": {
+                        "label": "Reviews",
+                        "format": "number"
+                    },
+                    "soldCount": {
+                        "label": "Sold",
+                        "format": "number"
+                    },
+                    "brand": {
+                        "label": "Brand",
+                        "format": "text"
+                    },
+                    "sellerName": {
+                        "label": "Seller",
+                        "format": "text"
+                    },
+                    "location": {
+                        "label": "Location",
+                        "format": "text"
+                    },
+                    "productUrl": {
+                        "label": "Product URL",
+                        "format": "link"
+                    }
+                }
+            }
         }
-      }
     }
-  }
 }
