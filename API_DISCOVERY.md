@@ -1,8 +1,35 @@
 # Daraz.pk API Discovery
 
-Last verified: 2026-11-02. This file replaces the previous discovery notes. Every
-row below comes from a live request made on that date from a clean Node process
-with no cookies and no proxy.
+Last verified: 2026-11-04. This file replaces the previous discovery notes. Every
+row below comes from a live request made from a clean Node process with no
+cookies and no proxy.
+
+## 2026-11-04 additions
+
+Three failure modes were reproduced against the live endpoint. All three are now
+handled by the actor.
+
+| Symptom                                    | Evidence                                                                                                                                                                                   | Handling                                                                                     |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| Invalid listing path returns HTTP 200 HTML | `GET /mobiles/?ajax=true&page=1` → 200, 99 KB error page. `wh_pid=/lazada/channel/pk/common/error` appears in `meta[name=page-url]`                                                        | Classified as `not-found`, then paginated as `/catalog/?q=<slug>`                            |
+| Anti-bot challenge returns HTTP 200 HTML   | Repeated bursts produced a 1.5 KB script redirect to `/_____tmd_____/punish?x5secdata=...`. Every impit profile and native `fetch` received it                                             | Classified as `punish`, three spaced retries, proxy rotation, then one cooled-down run retry |
+| Category pagination can repeat a page      | A CDN edge served the same 80 `itemId`s on pages 1, 3 and 5 during a burst. The same happens on Apify Cloud for the category route, while `/catalog/?q=` paginates normally on the same IP | Switch that listing to `/catalog/?q=<slug>` after the first page with no new items           |
+
+The challenge is IP-based: rotating the impit profile did not clear it, and a
+plain `fetch` from the same host received the same page. Only a different IP
+(proxy) or time clears it. The actor therefore rotates Apify Proxy sessions when
+a proxy is configured and otherwise fails with an explicit instruction to
+enable one.
+
+### Valid listing URL forms
+
+| Form                                                                  | Result                               |
+| --------------------------------------------------------------------- | ------------------------------------ |
+| `/catalog/?q=<query>`                                                 | JSON, works for any query            |
+| `/<real-category-slug>/`, e.g. `/womens-dresses/` or `/mens-fashion/` | JSON, 80 items per page with `ios18` |
+| `/<wrong-or-guessed-slug>/`, e.g. `/mobiles/`                         | `common/error` HTML page             |
+| `/catalog/<slug>/`                                                    | React shell HTML, no products        |
+| `/` (homepage) or `/products/...`                                     | Rejected as input, not a listing     |
 
 Cloud check on 2026-11-02: builds 1.0.1 and 1.0.2 ran on Apify Cloud (Linux,
 Node 22). The prefill input, empty input, URL-only input, and an empty query all
@@ -16,19 +43,21 @@ profile.
 3. If the JSON shape changed, update `locateListItems()` in `src/daraz-client.js`.
 4. Re-run the profile matrix before changing the profile pool.
 
-The actor logs `hint=See API_DISCOVERY.md` on every unrecoverable response. That
-hint means the response no longer matches any documented marker.
+Every unrecoverable response is logged with its `marker` and `code`. If the
+marker is not in [Response markers](#response-markers), the response no longer
+matches any documented shape. If the marker is `punish`, the IP is blocked and
+no code change will help - use a proxy.
 
 ## Selected request
 
 | Property          | Value                                                                                                       |
 | ----------------- | ----------------------------------------------------------------------------------------------------------- |
 | Endpoint          | `https://www.daraz.pk/catalog/?q=<query>&ajax=true&page=<n>`                                                |
-| Category form     | `https://www.daraz.pk/<category>/?ajax=true&page=<n>`                                                       |
+| Category form     | `https://www.daraz.pk/<real-category-slug>/?ajax=true&page=<n>`                                             |
 | Method            | `GET`                                                                                                       |
 | Auth              | None                                                                                                        |
 | Cookies           | Not required                                                                                                |
-| Proxy             | Not required                                                                                                |
+| Proxy             | Optional. Required to recover from an IP-level `punish` block.                                              |
 | Response          | `application/json; charset=utf-8`                                                                           |
 | Item array        | `mods.listItems`                                                                                            |
 | Pagination        | `page`, `mainInfo.page`, `mainInfo.pageSize`, `mainInfo.totalResults`, `mainInfo.noMorePages`               |
@@ -86,17 +115,26 @@ consistent with its TLS fingerprint.
 - An empty result returns HTTP 200 with `totalResults: "0"`, an empty
   `mods.listItems`, and `noMorePages: true`. This is a valid empty result, not a
   block.
+- The `/catalog/?q=` route paginated cleanly on every test, including five
+  consecutive pages from an Apify Cloud container with no proxy.
+- The category route (`/<slug>/?ajax=true`) is served through an edge cache that
+  intermittently replays the same item array for different `page` values. When
+  that happens the actor switches that listing to `/catalog/?q=<slug>`, which
+  paginates correctly.
 
 ## Response markers
 
-| Marker                                 | Meaning                                       | Action                               |
-| -------------------------------------- | --------------------------------------------- | ------------------------------------ |
-| JSON with `mods.listItems`             | Documented flow                               | Parse normally                       |
-| JSON with `mainInfo.totalResults: "0"` | Valid empty result                            | Stop listing, keep run successful    |
-| JSON with a different item array       | Shape drift                                   | Adapter logs the path used           |
-| HTML (`text/html`)                     | Challenge, redirect, or `ajax` parameter lost | Rotate header strategy, then profile |
-| Small JSON object without `mainInfo`   | Error envelope or blocked response            | Rotate profile                       |
-| `FAIL_SYS_*` in a JSONP callback       | Mtop endpoint without a signed session        | Rejected candidate, do not retry     |
+| Marker                                           | Meaning                                       | Action                                                      |
+| ------------------------------------------------ | --------------------------------------------- | ----------------------------------------------------------- |
+| JSON with `mods.listItems`                       | Documented flow                               | Parse normally                                              |
+| JSON with `mainInfo.totalResults: "0"`           | Valid empty result                            | Stop listing, keep run successful                           |
+| JSON with a different item array                 | Shape drift                                   | Adapter logs the path used                                  |
+| HTML with `/lazada/channel/pk/common/error`      | Listing path does not exist                   | No retry; try `/catalog/?q=<slug>`                          |
+| HTML with `/_____tmd_____/punish` or `x5secdata` | Anti-bot challenge for this IP                | Spaced retries, rotate proxy, cool down                     |
+| HTML (`text/html`)                               | Challenge, redirect, or `ajax` parameter lost | Retry with the other header strategy, then the next profile |
+| Small JSON object without `mainInfo`             | Error envelope or blocked response            | Rotate profile                                              |
+| Empty array without page metadata                | Error envelope, not a valid empty result      | Rotate profile                                              |
+| `FAIL_SYS_*` in a JSONP callback                 | Mtop endpoint without a signed session        | Rejected candidate, do not retry                            |
 
 ## Candidate matrix
 
@@ -131,17 +169,27 @@ dataset. `clickTrace` is only used to extract `shop_id`.
 
 | Failure                          | Actor response                                                     |
 | -------------------------------- | ------------------------------------------------------------------ |
-| Network error, timeout, HTTP 5xx | Retry the same page with backoff                                   |
+| Network error, timeout, HTTP 5xx | Retry the same page with capped exponential backoff and jitter     |
 | HTTP 429                         | Honor `Retry-After` (capped), rotate proxy session when configured |
-| HTTP 403 or challenge HTML       | Rotate header strategy, then profile                               |
+| HTTP 403 or challenge HTML       | Rotate header strategy, then profile, then proxy session           |
+| Anti-bot punish page             | Three spaced attempts (10 s, 25 s), then one cooled-down run retry |
+| Invalid listing path             | Switch to `/catalog/?q=<derived slug>` and paginate normally       |
+| Homepage or product page as URL  | Rejected before any request with a clear input error               |
 | HTTP 404 or other permanent 4xx  | Stop that listing, continue with the next one                      |
 | JSON shape drift                 | Try documented adapters, log the path, keep the output contract    |
-| Page size changes mid-listing    | Restart that listing once so offsets stay aligned                  |
+| Page size changes mid-listing    | Translate the page number to the new size instead of restarting    |
+| Category page replays old items  | Switch that listing to `/catalog/?q=<slug>`, keep deduplicating    |
+| Same products after the switch   | Stop that listing after three stalled pages                        |
+| Broken custom proxy URL          | Drop the proxy, log a warning, continue directly                   |
+| Malformed single product         | Skip it, count it as invalid, keep the rest of the batch           |
 | All retries exhausted on a page  | Stop that listing, keep saved batches, continue                    |
-| No listing produced data         | Fail the run so the failure is visible                             |
+| No listing produced data         | Retry the whole run once, then fail with an actionable message     |
 
-Retry budget is four attempts per page with up to eight seconds of backoff. A
-run never retries forever.
+Retry budget is eight attempts per page for ordinary failures, with a 45-second
+total wait cap and up to eight seconds per backoff step. Anti-bot challenges get
+three attempts instead because retrying a punish page in a tight loop only
+extends the block. A run never retries forever: each listing also has a request
+budget of twice `maxPages` (500 when unlimited).
 
 ## Diagnostic commands
 

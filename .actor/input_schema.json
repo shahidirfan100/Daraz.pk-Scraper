@@ -47,7 +47,7 @@
         "proxyConfiguration": {
             "title": "Proxy Configuration",
             "type": "object",
-            "description": "Optional proxy settings. Leave empty to connect directly. Apify Proxy requires a run on the Apify platform.",
+            "description": "Optional proxy settings. Leave empty to connect directly. For scheduled or large runs, use Apify Proxy with residential sessions in Pakistan so the Actor can rotate to a fresh address when the site limits the current one. Apify Proxy requires a run on the Apify platform.",
             "editor": "proxy",
             "default": {}
         }

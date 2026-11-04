@@ -1,11 +1,12 @@
 import { Actor, log } from 'apify';
-import { fetchCatalogPage, createProfileState, ProxySession } from './daraz-client.js';
+import { fetchCatalogPage, createProfileState, deriveSearchFallbackUrl, ProxySession } from './daraz-client.js';
 import {
     normalizeUrl,
     parseCompactNumber,
     parseTraceMap,
     redactCredentials,
     sanitizeText,
+    sleep,
     stripNullValues,
     toBoolean,
     toInteger,
@@ -16,7 +17,10 @@ import {
 const DEFAULT_SEARCH_QUERY = 'dress';
 const DEFAULT_MAX_PRODUCTS = 20;
 const DEFAULT_MAX_PAGES = 50;
-const MAX_PAGE_SIZE_RESTARTS = 1;
+const PROGRESS_STALL_LIMIT = 3;
+const RUN_RETRY_DELAY_MS = 8000;
+const RUN_RETRY_BLOCKED_DELAY_MS = 45000;
+const RUN_RETRY_JITTER_MS = 4000;
 const API_SOURCE = 'daraz.pk';
 
 function parseLimit(value, fallback) {
@@ -41,6 +45,8 @@ function normalizeListingUrl(value) {
 
         const host = url.hostname.toLowerCase();
         if (host !== 'daraz.pk' && !host.endsWith('.daraz.pk')) return null;
+
+        if (!url.pathname || url.pathname === '/') return null;
 
         if (/\/products\//i.test(url.pathname) || /-i\d+\.html$/i.test(url.pathname)) {
             log.warning(`Skipping product page because it is not a listing: ${url.pathname}`);
@@ -89,6 +95,23 @@ function resolveListings(input) {
     if (startUrls.length > 0) {
         if (searchQuery) log.info('startUrls takes precedence; searchQuery is ignored for this run.');
         return { mode: 'url', listings: startUrls, query: null };
+    }
+
+    const rawStartUrls = Array.isArray(input.startUrls)
+        ? input.startUrls
+        : typeof input.startUrls === 'string'
+          ? input.startUrls.split(/\r?\n/)
+          : [];
+
+    const suppliedUrls = rawStartUrls
+        .map((entry) => sanitizeText(typeof entry === 'string' ? entry : entry?.url))
+        .filter(Boolean);
+
+    if (suppliedUrls.length > 0) {
+        throw new Error(
+            'None of the supplied startUrls is a valid Daraz.pk listing URL. ' +
+                'Use a category URL such as https://www.daraz.pk/womens-dresses/ or leave startUrls empty to use searchQuery.',
+        );
     }
 
     const query = searchQuery || DEFAULT_SEARCH_QUERY;
@@ -212,7 +235,15 @@ function normalizeBatch(items, context) {
     const stats = { duplicates: 0, outOfStock: 0, invalid: 0 };
 
     for (const item of items) {
-        const record = normalizeProductRecord(item, context);
+        let record;
+
+        try {
+            record = normalizeProductRecord(item, context);
+        } catch (error) {
+            stats.invalid += 1;
+            log.debug(`Skipped malformed product: ${redactCredentials(error.message)}`);
+            continue;
+        }
 
         if (!record) {
             stats.invalid += 1;
@@ -237,17 +268,212 @@ function normalizeBatch(items, context) {
     return { items: products, stats };
 }
 
-async function main() {
-    const input = (await Actor.getInput()) || {};
-    const includeOutOfStock = toBoolean(input.includeOutOfStock, false);
-    const maxProducts = parseLimit(input.maxProducts, DEFAULT_MAX_PRODUCTS);
-    const maxPages = parseLimit(input.maxPages, DEFAULT_MAX_PAGES);
-    const proxySession = await createProxySession(input.proxyConfiguration);
-    const { mode, listings, query } = resolveListings(input);
+function createCounters() {
+    return {
+        saved: 0,
+        pagesFetched: 0,
+        failedPages: 0,
+        duplicates: 0,
+        outOfStock: 0,
+        invalid: 0,
+        fallbacks: 0,
+        temporaryFailures: 0,
+        lastError: null,
+    };
+}
+
+async function processListing(listing, context) {
+    const { maxPages, maxProducts, includeOutOfStock, seen, state, proxySession, counters, usedProfiles } = context;
+
+    let sourceUrl = listing;
+    let usedSearchRoute = false;
+    let page = 1;
+    let pageSize = null;
+    let stalledPages = 0;
+    let stopReason = 'completed';
+    let savedForListing = 0;
+    const pagesBefore = counters.pagesFetched;
+    const fetchBudget = Number.isFinite(maxPages) ? Math.max(maxPages * 2, 2) : 500;
+
+    log.info(`Listing started: ${listing}`);
+
+    while (page <= maxPages && counters.saved < maxProducts) {
+        if (counters.pagesFetched - pagesBefore >= fetchBudget) {
+            stopReason = 'page-budget';
+            log.warning('Listing reached its request budget; stopping it', { source: sourceUrl, page });
+            break;
+        }
+
+        let result;
+
+        try {
+            result = await fetchCatalogPage({ sourceUrl, page, state, proxySession });
+        } catch (error) {
+            counters.failedPages += 1;
+            counters.lastError = error;
+            if (error.temporary) counters.temporaryFailures += 1;
+
+            if (!usedSearchRoute && savedForListing === 0 && error.code === 'listing-not-found') {
+                const fallback = deriveSearchFallbackUrl(listing);
+
+                if (fallback) {
+                    usedSearchRoute = true;
+                    counters.fallbacks += 1;
+                    sourceUrl = fallback;
+                    page = 1;
+                    pageSize = null;
+                    stalledPages = 0;
+                    log.warning(`Listing route is unavailable. Retrying as a keyword search: ${fallback}`);
+                    continue;
+                }
+            }
+
+            stopReason = error.code === 'listing-not-found' ? 'listing-not-found' : 'request-failed';
+            log.warning(`Listing stopped at page ${page}: ${error.message}`, {
+                source: sourceUrl,
+                code: error.code,
+                status: error.status,
+                marker: error.marker,
+                temporary: error.temporary,
+            });
+            break;
+        }
+
+        counters.pagesFetched += 1;
+        usedProfiles.add(result.profile);
+
+        if (result.itemPath !== 'mods.listItems') {
+            log.warning('Catalog item array moved', {
+                path: result.itemPath,
+                topKeys: result.payloadKeys,
+                hint: 'Update locateListItems() in src/daraz-client.js',
+            });
+        }
+
+        const responsePageSize = result.meta.pageSize || (result.items.length > 0 ? result.items.length : null);
+
+        if (pageSize && responsePageSize && responsePageSize !== pageSize) {
+            const translatedPage = Math.floor(((page - 1) * pageSize) / responsePageSize) + 1;
+            log.info('Page size changed; continuing from a translated page', {
+                from: pageSize,
+                to: responsePageSize,
+                previousPage: page,
+                nextPage: translatedPage,
+            });
+            pageSize = responsePageSize;
+            page = translatedPage;
+            continue;
+        }
+
+        if (responsePageSize) pageSize = responsePageSize;
+
+        const batch = normalizeBatch(result.items, {
+            page: result.meta.page || page,
+            requestId: result.meta.requestId,
+            searchTerm: result.meta.title,
+            sourceUrl,
+            includeOutOfStock,
+            seen,
+            scrapedAt: new Date().toISOString(),
+        });
+
+        counters.duplicates += batch.stats.duplicates;
+        counters.outOfStock += batch.stats.outOfStock;
+        counters.invalid += batch.stats.invalid;
+
+        const newUnique = result.items.length - batch.stats.duplicates - batch.stats.invalid;
+
+        if (batch.items.length > 0) {
+            const remaining = maxProducts === Infinity ? batch.items.length : Math.max(0, maxProducts - counters.saved);
+            const selected = batch.items.slice(0, remaining);
+
+            if (selected.length > 0) {
+                await Actor.pushData(selected);
+                counters.saved += selected.length;
+                savedForListing += selected.length;
+                log.info('Batch saved', {
+                    saved: selected.length,
+                    total: counters.saved,
+                    target: formatLimit(maxProducts),
+                    page: result.meta.page || page,
+                    profile: result.profile,
+                });
+            }
+        }
+
+        if (counters.saved >= maxProducts) {
+            stopReason = 'product-limit';
+            break;
+        }
+        if (result.meta.noMorePages) {
+            stopReason = 'no-more-pages';
+            break;
+        }
+        if (result.meta.totalPages && page >= result.meta.totalPages) {
+            stopReason = 'last-page';
+            break;
+        }
+        if (pageSize && result.items.length < pageSize) {
+            stopReason = 'short-page';
+            break;
+        }
+
+        // Category URLs are served by an edge cache that sometimes ignores the
+        // page parameter and replays the same items. The catalog search route
+        // paginates correctly, so switch to it instead of losing the rest of
+        // the requested products.
+        if (newUnique === 0 && !usedSearchRoute) {
+            const searchUrl = deriveSearchFallbackUrl(sourceUrl);
+
+            if (searchUrl) {
+                usedSearchRoute = true;
+                counters.fallbacks += 1;
+                sourceUrl = searchUrl;
+                page = 1;
+                pageSize = null;
+                stalledPages = 0;
+                log.warning(`Category pagination repeated; continuing as a keyword search: ${searchUrl}`);
+                continue;
+            }
+        }
+
+        stalledPages = newUnique > 0 ? 0 : stalledPages + 1;
+        if (stalledPages >= PROGRESS_STALL_LIMIT) {
+            stopReason = 'repeated-pages';
+            log.warning('The listing returned the same products on consecutive pages; stopping this listing', {
+                source: sourceUrl,
+                page,
+            });
+            break;
+        }
+
+        page += 1;
+    }
+
+    log.info('Listing finished', {
+        listing,
+        saved: savedForListing,
+        pagesFetched: counters.pagesFetched - pagesBefore,
+        stopReason,
+    });
+}
+
+async function runExtraction({
+    listings,
+    query,
+    mode,
+    maxProducts,
+    maxPages,
+    includeOutOfStock,
+    proxySession,
+    attempt,
+}) {
     const state = createProfileState();
     const seen = new Set();
+    const counters = createCounters();
+    const usedProfiles = new Set();
 
-    log.info('Run started', {
+    log.info(attempt === 1 ? 'Run started' : 'Run retry started', {
         mode,
         listings: listings.length,
         query: query || undefined,
@@ -256,152 +482,92 @@ async function main() {
         proxy: proxySession.enabled,
     });
 
-    let savedCount = 0;
-    let pagesFetched = 0;
-    let failedPages = 0;
-    let duplicates = 0;
-    let outOfStock = 0;
-    let invalid = 0;
-    const usedProfiles = new Set();
-
     for (const listing of listings) {
-        if (savedCount >= maxProducts) break;
-
-        log.info(`Listing started: ${listing}`);
-
-        let page = 1;
-        let pageSize = null;
-        let restarts = 0;
-        let stopReason = 'completed';
-
-        while (page <= maxPages && savedCount < maxProducts) {
-            let result;
-
-            try {
-                result = await fetchCatalogPage({ sourceUrl: listing, page, state, proxySession });
-            } catch (error) {
-                failedPages += 1;
-                stopReason = 'request-failed';
-                log.warning(`Listing stopped at page ${page}: ${error.message}`, {
-                    temporary: error.temporary,
-                    status: error.status,
-                    marker: error.marker,
-                    hint: 'See API_DISCOVERY.md',
-                });
-                break;
-            }
-
-            pagesFetched += 1;
-            usedProfiles.add(result.profile);
-
-            if (result.itemPath !== 'mods.listItems') {
-                log.warning('Catalog item array moved', {
-                    path: result.itemPath,
-                    topKeys: result.payloadKeys,
-                    hint: 'Update locateListItems() in src/daraz-client.js',
-                });
-            }
-
-            const responsePageSize = result.meta.pageSize || (result.items.length > 0 ? result.items.length : null);
-
-            if (pageSize && responsePageSize && responsePageSize !== pageSize) {
-                if (restarts >= MAX_PAGE_SIZE_RESTARTS) {
-                    stopReason = 'page-size-changed';
-                    log.warning('Page size changed again; stopping this listing', {
-                        from: pageSize,
-                        to: responsePageSize,
-                    });
-                    break;
-                }
-
-                restarts += 1;
-                log.info('Page size changed; restarting listing to keep offsets aligned', {
-                    from: pageSize,
-                    to: responsePageSize,
-                });
-                pageSize = responsePageSize;
-                page = 1;
-                continue;
-            }
-
-            if (responsePageSize) pageSize = responsePageSize;
-
-            const batch = normalizeBatch(result.items, {
-                page: result.meta.page || page,
-                requestId: result.meta.requestId,
-                searchTerm: result.meta.title,
-                sourceUrl: listing,
-                includeOutOfStock,
-                seen,
-                scrapedAt: new Date().toISOString(),
-            });
-
-            duplicates += batch.stats.duplicates;
-            outOfStock += batch.stats.outOfStock;
-            invalid += batch.stats.invalid;
-
-            if (batch.items.length > 0) {
-                const remaining = maxProducts === Infinity ? batch.items.length : Math.max(0, maxProducts - savedCount);
-                const selected = batch.items.slice(0, remaining);
-
-                if (selected.length > 0) {
-                    await Actor.pushData(selected);
-                    savedCount += selected.length;
-                    log.info('Batch saved', {
-                        saved: selected.length,
-                        total: savedCount,
-                        target: formatLimit(maxProducts),
-                        page: result.meta.page || page,
-                        profile: result.profile,
-                    });
-                }
-            }
-
-            if (savedCount >= maxProducts) {
-                stopReason = 'product-limit';
-                break;
-            }
-            if (result.meta.noMorePages) {
-                stopReason = 'no-more-pages';
-                break;
-            }
-            if (result.meta.totalPages && page >= result.meta.totalPages) {
-                stopReason = 'last-page';
-                break;
-            }
-            if (pageSize && result.items.length < pageSize) {
-                stopReason = 'short-page';
-                break;
-            }
-
-            page += 1;
-        }
-
-        log.info('Listing finished', { saved: savedCount, pagesFetched, stopReason });
+        if (counters.saved >= maxProducts) break;
+        await processListing(listing, {
+            maxPages,
+            maxProducts,
+            includeOutOfStock,
+            seen,
+            state,
+            proxySession,
+            counters,
+            usedProfiles,
+        });
     }
 
-    if (savedCount === 0) {
-        if (failedPages > 0) {
-            throw new Error(
-                `No products were extracted. ${failedPages} page request(s) failed. ` +
-                    'Read API_DISCOVERY.md, then check the response marker in the logs.',
-            );
-        }
+    return { counters, usedProfiles };
+}
 
-        log.warning('The selected search returned zero products. The dataset is empty.');
-        return;
+function describeFailure(error) {
+    if (!error) return 'No products were extracted and the reason could not be determined.';
+
+    if (error.code === 'challenge') {
+        return (
+            'Daraz served its anti-bot challenge page (punish/x5sec). The current IP is rate-limited. ' +
+            'Enable Apify Proxy, preferably residential sessions in Pakistan, then run again.'
+        );
+    }
+
+    if (error.code === 'listing-not-found') {
+        return (
+            `No products were extracted because ${error.sourceUrl || 'the start URL'} is not a valid Daraz listing. ` +
+            'Use a category URL such as https://www.daraz.pk/womens-dresses/ or a search query instead.'
+        );
+    }
+
+    return (
+        `No products were extracted after retries (${error.code || error.marker || 'unknown'}: ${error.message}). ` +
+        `Last request: ${error.sourceUrl || 'unknown'}.`
+    );
+}
+
+async function main() {
+    const input = (await Actor.getInput()) || {};
+    const includeOutOfStock = toBoolean(input.includeOutOfStock, false);
+    const maxProducts = parseLimit(input.maxProducts, DEFAULT_MAX_PRODUCTS);
+    const maxPages = parseLimit(input.maxPages, DEFAULT_MAX_PAGES);
+    const proxySession = await createProxySession(input.proxyConfiguration);
+    const { mode, listings, query } = resolveListings(input);
+    const options = { listings, query, mode, maxProducts, maxPages, includeOutOfStock, proxySession };
+
+    let { counters, usedProfiles } = await runExtraction({ ...options, attempt: 1 });
+
+    if (counters.saved === 0 && counters.temporaryFailures > 0) {
+        const blocked = counters.lastError?.code === 'challenge';
+        const delay = blocked ? RUN_RETRY_BLOCKED_DELAY_MS : RUN_RETRY_DELAY_MS;
+
+        log.warning(
+            blocked
+                ? 'Daraz returned its anti-bot challenge on the first pass. Cooling down, then retrying once.'
+                : 'No products were saved on the first pass. Retrying the whole run once after a short pause.',
+        );
+
+        if (proxySession.enabled) await proxySession.rotate();
+        await sleep(delay + Math.floor(Math.random() * RUN_RETRY_JITTER_MS));
+
+        ({ counters, usedProfiles } = await runExtraction({ ...options, attempt: 2 }));
+    }
+
+    if (counters.saved === 0 && counters.failedPages > 0) {
+        throw new Error(describeFailure(counters.lastError));
     }
 
     log.info('Run finished', {
-        saved: savedCount,
-        pages: pagesFetched,
-        duplicates,
-        outOfStock,
-        invalid,
-        failedPages,
+        saved: counters.saved,
+        pages: counters.pagesFetched,
+        duplicates: counters.duplicates,
+        outOfStock: counters.outOfStock,
+        invalid: counters.invalid,
+        failedPages: counters.failedPages,
+        fallbacks: counters.fallbacks,
         profiles: [...usedProfiles].join(','),
         proxyRotations: proxySession.rotations,
     });
+
+    if (counters.saved === 0) {
+        log.warning('The selected search returned zero products. The dataset is empty.');
+    }
 }
 
 await Actor.init();

@@ -144,7 +144,7 @@ Collect products from more than one listing in a single run:
 
 ### Run with a proxy
 
-Use proxy settings for larger or scheduled runs:
+Use proxy settings for larger or scheduled runs. Daraz limits how many requests one address can send in a short window, so residential sessions in Pakistan give the most reliable results:
 
 ```json
 {
@@ -152,10 +152,13 @@ Use proxy settings for larger or scheduled runs:
     "maxProducts": 200,
     "proxyConfiguration": {
         "useApifyProxy": true,
-        "apifyProxyGroups": ["RESIDENTIAL"]
+        "apifyProxyGroups": ["RESIDENTIAL"],
+        "apifyProxyCountry": "PK"
     }
 }
 ```
+
+The Actor rotates the proxy session automatically when the site asks for a challenge, and it retries the run once after a short cooldown. If no proxy is configured and the address is limited, the run stops with a message that tells you to enable one.
 
 ## Sample Output
 
@@ -203,7 +206,7 @@ Use proxy settings for larger or scheduled runs:
 
 - Start with a focused category or a specific keyword. Broad categories produce a mixed dataset and fill the product limit quickly.
 - Keep `maxProducts` low for a first run, then raise it after you check the output.
-- Use category URLs that show products in a normal browser session. A category that is empty or unavailable returns an empty dataset.
+- Use category URLs that show products in a normal browser session. If a category path is not recognized, the Actor retries it as a keyword search built from that path.
 - Leave `startUrls` empty when you want to use `searchQuery`. When both are set, `startUrls` wins.
 - Use `maxProducts: 0` only when you need the full result set. It removes the product cap, not the page cap.
 - Enable a proxy for large or scheduled runs. Direct connections work for small runs.
@@ -245,6 +248,10 @@ Yes. Apify datasets can be downloaded as CSV, Excel, JSON, XML, and other suppor
 ### Can I run this Actor on a schedule?
 
 Yes. Schedule the Actor in Apify Console to refresh prices, stock, and ratings on a daily, weekly, or custom interval.
+
+### Why did the run stop with an anti-bot message?
+
+Daraz limits request bursts from a single address. The Actor spaces out its retries and retries the run once after a cooldown. If the message still appears, enable Apify Proxy with residential sessions in Pakistan, then run again. The next run uses a fresh address.
 
 ### Why is my dataset smaller than the limit I set?
 

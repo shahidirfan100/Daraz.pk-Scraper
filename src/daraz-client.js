@@ -3,10 +3,13 @@ import { Impit } from 'impit';
 import { redactCredentials, sleep, toNumber, toBoolean } from './utils.js';
 
 const REQUEST_TIMEOUT_MS = 30000;
-const MAX_ATTEMPTS_PER_PAGE = 4;
-const RETRY_BASE_MS = 400;
+const MAX_ATTEMPTS_PER_PAGE = 8;
+const MAX_CHALLENGE_ATTEMPTS = 3;
+const MAX_RETRY_WAIT_MS = 45000;
+const CHALLENGE_WAITS_MS = Object.freeze([10000, 25000]);
+const RETRY_BASE_MS = 700;
 const RETRY_MAX_MS = 8000;
-const RETRY_JITTER_MS = 250;
+const RETRY_JITTER_MS = 400;
 
 // Profiles verified against the catalog endpoint. See API_DISCOVERY.md.
 // ios18 is first because the mobile listing returns 80 products per page.
@@ -22,6 +25,15 @@ export const PROFILE_POOL = Object.freeze([
 ]);
 
 const HEADER_STRATEGIES = Object.freeze(['profile', 'ajax']);
+
+/**
+ * Daraz serves this route for listing paths that do not exist (for example a
+ * category slug that was typed by hand). Retrying it never helps, so it is
+ * classified separately from a challenge page.
+ */
+const ERROR_ROUTE_PATTERN = /\/lazada\/channel\/[^"'\s]*?common\/error/i;
+
+const NON_LISTING_SEGMENTS = new Set(['catalog', 'search', 'products', 'product', 'index', 'home', 'pk']);
 
 const KNOWN_ITEM_PATHS = Object.freeze([
     { path: 'mods.listItems', read: (payload) => payload?.mods?.listItems, allowEmpty: true },
@@ -44,6 +56,7 @@ export class CatalogRequestError extends Error {
         this.status = options.status ?? null;
         this.retryAfterMs = options.retryAfterMs ?? null;
         this.marker = options.marker ?? 'unknown';
+        this.code = options.code ?? null;
         this.details = options.details ?? null;
     }
 }
@@ -76,12 +89,27 @@ export class ProxySession {
             log.warning(`Proxy session rotation failed: ${redactCredentials(error.message)}`);
         }
     }
+
+    /**
+     * Drops a proxy that cannot even create a client (invalid URL, unsupported
+     * protocol). A broken proxy must not turn the whole run into a failure.
+     */
+    async disable(reason) {
+        if (!this.enabled) return;
+
+        this.configuration = null;
+        this.url = null;
+        clients.clear();
+        log.warning(
+            `Proxy disabled for the rest of this run: ${redactCredentials(reason)}. Continuing without a proxy.`,
+        );
+    }
 }
 
 export function createProfileState() {
     return {
         profiles: [...PROFILE_POOL],
-        active: PROFILE_POOL[0],
+        active: null,
         failures: new Map(),
         strategyIndex: 0,
     };
@@ -93,6 +121,43 @@ export function buildPageUrl(sourceUrl, page) {
     url.searchParams.set('ajax', 'true');
     url.searchParams.set('page', String(page));
     return url;
+}
+
+/**
+ * Turns a category path such as /mobiles/ into the documented catalog search
+ * form. Used only when the path itself returns the Daraz error route.
+ */
+export function deriveSearchFallbackUrl(sourceUrl) {
+    let url;
+    try {
+        url = new URL(sourceUrl);
+    } catch {
+        return null;
+    }
+
+    if (url.searchParams.get('q')) return null;
+
+    const segments = url.pathname.split('/').filter(Boolean);
+    const lastSegment = segments[segments.length - 1];
+    if (!lastSegment) return null;
+
+    let decoded = lastSegment;
+    try {
+        decoded = decodeURIComponent(lastSegment);
+    } catch {
+        decoded = lastSegment;
+    }
+
+    const term = decoded
+        .replace(/\.(html?|php)$/i, '')
+        .replace(/[-_+]+/g, ' ')
+        .trim();
+
+    if (!term || NON_LISTING_SEGMENTS.has(term.toLowerCase())) return null;
+
+    const fallback = new URL('https://www.daraz.pk/catalog/');
+    fallback.searchParams.set('q', term);
+    return fallback.href;
 }
 
 function getClient(profile, proxyUrl) {
@@ -149,8 +214,9 @@ function pickProfile(state, excluded) {
     const available = state.profiles.filter((profile) => !excluded.has(profile));
     if (available.length === 0) return null;
 
-    const activeFailures = state.failures.get(state.active) || 0;
-    if (available.includes(state.active) && activeFailures === 0) return state.active;
+    if (state.active && available.includes(state.active) && !state.failures.get(state.active)) {
+        return state.active;
+    }
 
     return available.sort((left, right) => {
         const failureDelta = (state.failures.get(left) || 0) - (state.failures.get(right) || 0);
@@ -167,6 +233,8 @@ export function detectResponseMarker(text, contentType = '') {
     if (/^[a-zA-Z_$][\w$]*\s*\(/.test(trimmed.slice(0, 200))) return 'jsonp';
 
     const head = trimmed.slice(0, 8000);
+    if (ERROR_ROUTE_PATTERN.test(head)) return 'not-found';
+    if (/_____tmd_____\/punish|x5secdata/i.test(head)) return 'punish';
     if (/captcha|access denied|pardon our interruption|verify you are human|robot check/i.test(head)) {
         return 'blocked';
     }
@@ -357,9 +425,32 @@ function summarizeResponse(text, marker) {
     return summary;
 }
 
+function describeMarker(marker) {
+    if (marker === 'not-found') return 'Daraz returned its generic error route for this listing';
+    if (marker === 'punish') return 'Daraz anti-bot challenge (punish/x5sec)';
+    if (marker === 'blocked') return 'Daraz anti-bot challenge (captcha)';
+
+    return 'Unrecognized catalog response';
+}
+
+function classifyFailure(marker) {
+    if (marker === 'not-found') {
+        return { code: 'listing-not-found', temporary: false };
+    }
+    if (marker === 'blocked' || marker === 'punish') {
+        return { code: 'challenge', temporary: true };
+    }
+
+    return { code: 'unrecognized-response', temporary: true };
+}
+
 export async function fetchCatalogPage({ sourceUrl, page, state, proxySession }) {
+    const requestUrl = buildPageUrl(sourceUrl, page);
+    const safeUrl = redactCredentials(requestUrl.href).slice(0, 180);
     const excluded = new Set();
     let lastError = null;
+    let waitMs = 0;
+    let challengeCount = 0;
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_PAGE; attempt += 1) {
         const profile = pickProfile(state, excluded);
@@ -367,10 +458,27 @@ export async function fetchCatalogPage({ sourceUrl, page, state, proxySession })
 
         const strategyIndex = (state.strategyIndex + attempt - 1) % HEADER_STRATEGIES.length;
         const strategy = HEADER_STRATEGIES[strategyIndex];
-        const proxyUrl = await proxySession.get();
-        const client = getClient(profile, proxyUrl);
-        const requestUrl = buildPageUrl(sourceUrl, page);
         const startedAt = Date.now();
+        let client;
+
+        try {
+            const proxyUrl = await proxySession.get();
+            client = getClient(profile, proxyUrl);
+        } catch (error) {
+            lastError = new CatalogRequestError(`Request client setup failed: ${redactCredentials(error.message)}`, {
+                temporary: true,
+                code: 'client-init',
+                marker: 'client',
+            });
+            state.failures.set(profile, (state.failures.get(profile) || 0) + 1);
+            excluded.add(profile);
+            log.warning('Request client could not be created', {
+                profile,
+                message: redactCredentials(error.message),
+            });
+            await proxySession.disable(error.message);
+            continue;
+        }
 
         try {
             const response = await client.fetch(requestUrl.href, {
@@ -385,6 +493,7 @@ export async function fetchCatalogPage({ sourceUrl, page, state, proxySession })
                     status,
                     retryAfterMs: parseRetryAfter(response.headers),
                     marker: status >= 500 ? 'server-error' : 'blocked',
+                    code: `http-${status}`,
                 });
             }
 
@@ -394,9 +503,12 @@ export async function fetchCatalogPage({ sourceUrl, page, state, proxySession })
 
             if (!parsed) {
                 const marker = detectResponseMarker(text, contentType);
-                throw new CatalogRequestError('Unrecognized catalog response', {
+                const failure = classifyFailure(marker);
+                throw new CatalogRequestError(describeMarker(marker), {
                     status,
                     marker,
+                    temporary: failure.temporary,
+                    code: failure.code,
                     details: summarizeResponse(text, marker),
                 });
             }
@@ -412,9 +524,24 @@ export async function fetchCatalogPage({ sourceUrl, page, state, proxySession })
                 throw new CatalogRequestError('Empty item array with a non-zero total', {
                     status,
                     marker: 'empty-with-total',
+                    code: 'empty-with-total',
                     details: {
                         page: parsed.meta.page,
                         totalResults,
+                    },
+                });
+            }
+
+            // A real empty result carries totalResults "0" and noMorePages true.
+            // An empty array without page metadata is an error envelope, not data.
+            if (parsed.items.length === 0 && !parsed.meta.noMorePages && parsed.meta.totalResults === null) {
+                throw new CatalogRequestError('Empty catalog payload without page metadata', {
+                    status,
+                    marker: 'empty-unexpected',
+                    code: 'empty-unexpected',
+                    details: {
+                        page: parsed.meta.page,
+                        topKeys: parsed.payloadKeys,
                     },
                 });
             }
@@ -441,9 +568,11 @@ export async function fetchCatalogPage({ sourceUrl, page, state, proxySession })
                           {
                               temporary: true,
                               marker: 'network',
+                              code: 'network',
                           },
                       );
 
+            normalized.sourceUrl = safeUrl;
             lastError = normalized;
             state.failures.set(profile, (state.failures.get(profile) || 0) + 1);
             if (state.active === profile) state.active = null;
@@ -454,6 +583,8 @@ export async function fetchCatalogPage({ sourceUrl, page, state, proxySession })
                 strategy,
                 status: normalized.status,
                 marker: normalized.marker,
+                code: normalized.code,
+                url: safeUrl,
                 durationMs: Date.now() - startedAt,
                 message: redactCredentials(normalized.message),
                 ...(normalized.details || {}),
@@ -461,15 +592,39 @@ export async function fetchCatalogPage({ sourceUrl, page, state, proxySession })
 
             if (!normalized.temporary) throw normalized;
 
-            if ([403, 407, 429].includes(normalized.status) && proxySession.enabled) {
+            const challenged =
+                normalized.marker === 'punish' || (normalized.marker === 'blocked' && normalized.status === 200);
+            if (challenged) challengeCount += 1;
+
+            const rotatingStatus =
+                [401, 403, 407, 408, 425, 429].includes(normalized.status) || normalized.status >= 500;
+
+            if ((rotatingStatus || challenged || normalized.marker === 'network') && proxySession.enabled) {
                 await proxySession.rotate();
             }
 
+            // Retrying an anti-bot challenge in a tight loop only extends the block.
+            // Give it two spaced-out chances, then let the run-level retry decide.
+            if (challenged && challengeCount >= MAX_CHALLENGE_ATTEMPTS) break;
+
             if (attempt < MAX_ATTEMPTS_PER_PAGE) {
-                await sleep(resolveRetryDelay(attempt, normalized.retryAfterMs));
+                const delay = challenged
+                    ? CHALLENGE_WAITS_MS[Math.min(challengeCount - 1, CHALLENGE_WAITS_MS.length - 1)]
+                    : resolveRetryDelay(attempt, normalized.retryAfterMs);
+
+                if (waitMs + delay > MAX_RETRY_WAIT_MS) break;
+
+                waitMs += delay;
+                await sleep(delay);
             }
         }
     }
 
-    throw lastError || new CatalogRequestError('No browser profile left to try', { temporary: false });
+    throw (
+        lastError ||
+        new CatalogRequestError('No browser profile left to try', {
+            temporary: false,
+            code: 'profiles-exhausted',
+        })
+    );
 }
